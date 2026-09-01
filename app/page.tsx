@@ -51,9 +51,8 @@ export default function HomePage() {
   return (
     <div className="max-w-7xl mx-auto p-4 md:p-6">
       <header className="mb-8">
-        <h1 className="text-3xl font-bold">AllRecipes Featured Tweaks</h1>
         <p className="text-gray-600 mt-1">
-          Paste any AllRecipes link → get modified versions from Featured Tweaks
+          Paste any AllRecipes link 
         </p>
       </header>
 
