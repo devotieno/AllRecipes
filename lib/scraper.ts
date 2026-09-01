@@ -41,7 +41,7 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
 
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
-      timeout: 60000,
+      timeout: 300000,
     });
 
     await page.waitForTimeout(3000);
