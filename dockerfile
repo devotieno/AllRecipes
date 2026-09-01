@@ -7,6 +7,8 @@ RUN npm ci
 
 COPY . .
 
+RUN npx playwright install --with-deps chromium
+
 RUN npm run build
 
 EXPOSE 8080
