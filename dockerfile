@@ -7,7 +7,7 @@ RUN npm ci
 
 COPY . .
 
-RUN npx playwright install --with-deps chromium
+RUN npx playwright-core install --with-deps chromium
 
 RUN npm run build
 
