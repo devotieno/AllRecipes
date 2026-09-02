@@ -11,7 +11,7 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
     headless: true,
     proxy: process.env.WEBSHARE_USER
       ? {
-          server: 'http://p.webshare.io:80',
+          server: 'http://45.38.107.97:6014',
           username: process.env.WEBSHARE_USER,
           password: process.env.WEBSHARE_PASS,
         }
