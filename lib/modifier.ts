@@ -1,69 +1,71 @@
 import { Recipe, Tweak } from '@/types';
+import Groq from 'groq-sdk';
 
-export function applyTweak(original: Recipe, tweak: Tweak) {
-  const lowerTweak = tweak.text.toLowerCase();
+const groq = new Groq({
+  apiKey: process.env.GROQ_API_KEY,
+});
 
-  // Start with a clean copy of the original ingredients
-  let modifiedIngredients = [...original.ingredients];
+export async function applyTweak(original: Recipe, tweak: Tweak) {
+  try {
+    const prompt = `
+You are a helpful cooking assistant.
 
-  // Collect additions based on what the user mentioned in their tweak
-  const additions: string[] = [];
+Here is the original recipe:
 
-  if (lowerTweak.includes('bacon')) {
-    additions.push('+ Canadian bacon or regular bacon (from tweak)');
+Title: ${original.title}
+
+Ingredients:
+${original.ingredients.map((i) => `- ${i}`).join('\n')}
+
+Instructions:
+${original.instructions.map((i, idx) => `${idx + 1}. ${i}`).join('\n')}
+
+Here is a user tweak/review:
+"${tweak.text}"
+
+Task:
+Apply the user's suggestions to the recipe in a realistic way.
+Return the result in this exact JSON format:
+
+{
+  "modifiedIngredients": ["ingredient 1", "ingredient 2", ...],
+  "modifiedInstructions": ["step 1", "step 2", ...]
+}
+
+Only return valid JSON. Do not add any explanation.
+`;
+
+    const completion = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      model: 'llama-3.3-70b-versatile',
+      temperature: 0.3,
+      response_format: { type: 'json_object' },
+    });
+
+    const content = completion.choices[0]?.message?.content || '';
+    const parsed = JSON.parse(content);
+
+    return {
+      modifiedIngredients: parsed.modifiedIngredients || original.ingredients,
+      modifiedInstructions: parsed.modifiedInstructions || original.instructions,
+    };
+  } catch (error) {
+    console.error('Groq error:', error);
+
+    // Minimal emergency fallback
+    return {
+      modifiedIngredients: original.ingredients,
+      modifiedInstructions: [
+        ...original.instructions,
+        '',
+        `─── Modification note from ${tweak.author} ───`,
+        tweak.text,
+      ],
+    };
   }
-  if (lowerTweak.includes('onion') || lowerTweak.includes('onions')) {
-    additions.push('+ Chopped onion, sautéed (from tweak)');
-  }
-  if (lowerTweak.includes('cheddar') || lowerTweak.includes('cheese')) {
-    additions.push('+ Crumbly English cheddar or extra cheese (from tweak)');
-  }
-  if (
-    lowerTweak.includes('basil') &&
-    !original.ingredients.some((i) => i.toLowerCase().includes('basil'))
-  ) {
-    additions.push('+ Fresh basil (from tweak)');
-  }
-  if (lowerTweak.includes('garlic')) {
-    additions.push('+ Garlic (from tweak)');
-  }
-  if (lowerTweak.includes('spinach')) {
-    additions.push('+ Spinach (from tweak)');
-  }
-  if (lowerTweak.includes('mushroom')) {
-    additions.push('+ Mushrooms (from tweak)');
-  }
-
-  // Combine original + clear additions
-  modifiedIngredients = [...original.ingredients, ...additions];
-
-  // ========== INSTRUCTIONS ==========
-  let baseInstructions = [...original.instructions];
-
-  // Remove the failure message if it exists
-  baseInstructions = baseInstructions.filter(
-    (line) => !line.toLowerCase().includes('could not extract')
-  );
-
-  // If we still have no real instructions, use the known good directions
-  // for Chef John's Summer Scrambled Eggs (scrappy fallback)
-  if (baseInstructions.length === 0) {
-    baseInstructions = [
-      'Whisk eggs and pepper flakes together in a bowl. Stir in tomatoes, feta, and basil.',
-      'Heat olive oil in a nonstick skillet over high heat until starting to shimmer. Pour egg mixture into hot oil and cook, without stirring, for 5 seconds.',
-      'Cook and stir egg mixture until eggs are scrambled and softly set, about 30 seconds. Transfer to a plate and sprinkle with sea salt.',
-    ];
-  }
-
-  const modifiedInstructions = [
-    ...baseInstructions,
-    '',
-    `─── Modification note from ${tweak.author} ───`,
-    tweak.text,
-  ];
-
-  return {
-    modifiedIngredients,
-    modifiedInstructions,
-  };
 }
