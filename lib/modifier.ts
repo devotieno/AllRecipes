@@ -1,12 +1,17 @@
 import { Recipe, Tweak } from '@/types';
 import Groq from 'groq-sdk';
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
-
 export async function applyTweak(original: Recipe, tweak: Tweak) {
+  // Create the client only when the function is called
+  const groq = new Groq({
+    apiKey: process.env.GROQ_API_KEY,
+  });
+
   try {
+    if (!process.env.GROQ_API_KEY) {
+      throw new Error('GROQ_API_KEY is missing');
+    }
+
     const prompt = `
 You are a helpful cooking assistant.
 
@@ -57,11 +62,13 @@ Only return valid JSON. Do not add any explanation.
   } catch (error) {
     console.error('Groq error:', error);
 
-    // Minimal emergency fallback
+    // Minimal fallback
     return {
       modifiedIngredients: original.ingredients,
       modifiedInstructions: [
-        ...original.instructions,
+        ...original.instructions.filter(
+          (l) => !l.toLowerCase().includes('could not extract')
+        ),
         '',
         `─── Modification note from ${tweak.author} ───`,
         tweak.text,
