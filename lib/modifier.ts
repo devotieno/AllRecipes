@@ -2,7 +2,6 @@ import { Recipe, Tweak } from '@/types';
 import Groq from 'groq-sdk';
 
 export async function applyTweak(original: Recipe, tweak: Tweak) {
-  // Create the client only when the function is called
   const groq = new Groq({
     apiKey: process.env.GROQ_API_KEY,
   });
@@ -15,29 +14,23 @@ export async function applyTweak(original: Recipe, tweak: Tweak) {
     const prompt = `
 You are a helpful cooking assistant.
 
-Here is the original recipe:
-
-Title: ${original.title}
-
-Ingredients:
+Original Ingredients:
 ${original.ingredients.map((i) => `- ${i}`).join('\n')}
 
-Instructions:
-${original.instructions.map((i, idx) => `${idx + 1}. ${i}`).join('\n')}
-
-Here is a user tweak/review:
+User Review/Tweak:
 "${tweak.text}"
 
 Task:
-Apply the user's suggestions to the recipe in a realistic way.
-Return the result in this exact JSON format:
+Based on the user's review, update the ingredients list realistically.
+- Add any new ingredients the user mentioned
+- Modify existing ones if the user suggested changes
+- Keep the list clean and practical
+
+Return ONLY valid JSON in this format:
 
 {
-  "modifiedIngredients": ["ingredient 1", "ingredient 2", ...],
-  "modifiedInstructions": ["step 1", "step 2", ...]
+  "modifiedIngredients": ["ingredient 1", "ingredient 2", ...]
 }
-
-Only return valid JSON. Do not add any explanation.
 `;
 
     const completion = await groq.chat.completions.create({
@@ -55,14 +48,27 @@ Only return valid JSON. Do not add any explanation.
     const content = completion.choices[0]?.message?.content || '';
     const parsed = JSON.parse(content);
 
+    const modifiedIngredients = parsed.modifiedIngredients || original.ingredients;
+
+    // Keep original instructions + add the tweak note at the end
+    const cleanInstructions = original.instructions.filter(
+      (l) => !l.toLowerCase().includes('could not extract')
+    );
+
+    const modifiedInstructions = [
+      ...cleanInstructions,
+      '',
+      `─── Modification note from ${tweak.author} ───`,
+      tweak.text,
+    ];
+
     return {
-      modifiedIngredients: parsed.modifiedIngredients || original.ingredients,
-      modifiedInstructions: parsed.modifiedInstructions || original.instructions,
+      modifiedIngredients,
+      modifiedInstructions,
     };
   } catch (error) {
     console.error('Groq error:', error);
 
-    // Minimal fallback
     return {
       modifiedIngredients: original.ingredients,
       modifiedInstructions: [
