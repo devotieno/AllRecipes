@@ -55,7 +55,6 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
           .trim();
       };
 
-      // Clean author name, dates, and UI chrome from review text
       const cleanTweakText = (raw: string, author: string) => {
         let t = raw;
 
@@ -74,7 +73,7 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
 
       const title = clean(document.querySelector('h1')?.textContent) || 'Untitled Recipe';
 
-      // ===== INGREDIENTS (IMPROVED) =====
+      // ===== INGREDIENTS (AGGRESSIVE) =====
       let ingredients: string[] = [];
 
       const ingredientSelectors = [
@@ -84,39 +83,65 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
         '.ingredients-item-name',
         '.recipe-ingredients li',
         'ul[class*="ingredient"] li',
+        '[class*="ingredient-list"] li',
+        '.mntl-structured-ingredients__list li',
       ];
 
       for (const selector of ingredientSelectors) {
         const els = document.querySelectorAll(selector);
-        if (els.length > 2) {
+        if (els.length >= 3) {
           ingredients = Array.from(els)
             .map((el) => clean(el.textContent))
-            .filter((t) => t.length > 2 && t.length < 140);
+            .filter((t) => t.length > 2 && t.length < 150);
           break;
         }
       }
 
-      // If we still got a single long string, split it aggressively
+      // Aggressive fallback
       if (ingredients.length <= 1) {
-        const longText = ingredients[0] || '';
+        const possibleContainers = document.querySelectorAll(
+          '[class*="ingredient"], [class*="Ingredient"], section, div'
+        );
 
-        let split = longText.split(/(?=\d+[\d\/]*\s)/);
+        let bestText = '';
+        possibleContainers.forEach((el) => {
+          const text = clean(el.textContent);
+          if (
+            text.length > 80 &&
+            text.length < 900 &&
+            (text.match(/\d+\s+(cup|tablespoon|teaspoon|tsp|tbsp|egg|cups)/i) ||
+              text.toLowerCase().includes('cup') ||
+              text.toLowerCase().includes('banana'))
+          ) {
+            if (text.length > bestText.length) {
+              bestText = text;
+            }
+          }
+        });
 
-        if (split.length < 3) {
-          split = longText.split(/(?:,|\n|\u2022|\||(?<=\S)\s{2,})/);
+        if (bestText) {
+          let candidates = bestText.split(/(?=\d+[\d\/\s]*\s*[a-zA-Z])/);
+          if (candidates.length < 4) {
+            candidates = bestText.split(/(?:,\s*|\n|\u2022|\||\s{2,})/);
+          }
+          if (candidates.length < 4) {
+            candidates = bestText.split(/(?=\d+\s)/);
+          }
+
+          ingredients = candidates
+            .map((item) => item.trim())
+            .filter((item) => item.length > 4 && item.length < 130)
+            .filter((item) => /[a-zA-Z]/.test(item))
+            .filter((item) => !item.toLowerCase().includes('direction'))
+            .filter((item) => !item.toLowerCase().includes('instruction'));
         }
-
-        ingredients = split
-          .map((item) => item.trim())
-          .filter((item) => item.length > 3 && item.length < 120)
-          .filter((item) => /[a-zA-Z]/.test(item));
       }
 
       // Final cleaning
       ingredients = Array.from(new Set(ingredients))
-        .map((i) => i.replace(/^[-•\s]+/, '').trim())
-        .filter(Boolean)
-        .slice(0, 25);
+        .map((i) => i.replace(/^[-•*\s]+/, '').trim())
+        .filter((i) => i.length > 3)
+        .slice(0, 30);
 
       // ===== INSTRUCTIONS =====
       let instructions: string[] = [];
@@ -177,7 +202,6 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
         tweaksRaw.push({ author, text });
       });
 
-      // Strong deduplication
       const uniqueTweaks = tweaksRaw.filter(
         (t, i, self) =>
           i === self.findIndex((x) => x.text.slice(0, 70) === t.text.slice(0, 70))
