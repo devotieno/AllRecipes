@@ -41,7 +41,7 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
 
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
-      timeout: 300000,
+      timeout: 60000,
     });
 
     await page.waitForTimeout(3000);
@@ -55,9 +55,26 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
           .trim();
       };
 
+      // Clean author name, dates, and UI chrome from review text
+      const cleanTweakText = (raw: string, author: string) => {
+        let t = raw;
+
+        if (author && author !== 'Anonymous' && t.startsWith(author)) {
+          t = t.slice(author.length);
+        }
+
+        t = t.replace(/^\d{1,2}\/\d{1,2}\/\d{2,4}/, '');
+        t = t.replace(/^[A-Z][a-z]+\s\d{1,2},\s\d{4}/, '');
+        t = t.replace(/Read More/gi, '');
+        t = t.replace(/\d+\s*Repl(y|ies)/gi, '');
+        t = t.replace(/Helpful\?/gi, '');
+
+        return t.replace(/\s+/g, ' ').trim();
+      };
+
       const title = clean(document.querySelector('h1')?.textContent) || 'Untitled Recipe';
 
-      // ===== INGREDIENTS =====
+      // ===== INGREDIENTS (IMPROVED) =====
       let ingredients: string[] = [];
 
       const ingredientSelectors = [
@@ -66,6 +83,7 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
         '[itemprop="recipeIngredient"]',
         '.ingredients-item-name',
         '.recipe-ingredients li',
+        'ul[class*="ingredient"] li',
       ];
 
       for (const selector of ingredientSelectors) {
@@ -77,6 +95,28 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
           break;
         }
       }
+
+      // If we still got a single long string, split it aggressively
+      if (ingredients.length <= 1) {
+        const longText = ingredients[0] || '';
+
+        let split = longText.split(/(?=\d+[\d\/]*\s)/);
+
+        if (split.length < 3) {
+          split = longText.split(/(?:,|\n|\u2022|\||(?<=\S)\s{2,})/);
+        }
+
+        ingredients = split
+          .map((item) => item.trim())
+          .filter((item) => item.length > 3 && item.length < 120)
+          .filter((item) => /[a-zA-Z]/.test(item));
+      }
+
+      // Final cleaning
+      ingredients = Array.from(new Set(ingredients))
+        .map((i) => i.replace(/^[-•\s]+/, '').trim())
+        .filter(Boolean)
+        .slice(0, 25);
 
       // ===== INSTRUCTIONS =====
       let instructions: string[] = [];
@@ -108,8 +148,21 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
       const tweaksRaw: { author: string; text: string }[] = [];
 
       tweakEls.forEach((el) => {
-        const text = clean(el.textContent);
-        if (text.length < 50 || text.length > 900) return;
+        let author = 'Anonymous';
+        const authorEl = el.querySelector(
+          '[class*="author"], [class*="name"], [class*="username"], [class*="user-name"]'
+        );
+        if (authorEl) {
+          author = clean(authorEl.textContent).replace(/^by\s+/i, '') || 'Anonymous';
+        }
+
+        const bodyEl = el.querySelector(
+          '[class*="feedback-body"], [class*="review-text"], [class*="ugc-review-body"], p'
+        );
+        const rawText = bodyEl ? clean(bodyEl.textContent) : clean(el.textContent);
+        const text = cleanTweakText(rawText, author);
+
+        if (text.length < 20 || text.length > 900) return;
 
         const lower = text.toLowerCase();
         if (
@@ -119,14 +172,6 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
           lower.includes('ask the community')
         ) {
           return;
-        }
-
-        let author = 'Anonymous';
-        const authorEl = el.querySelector(
-          '[class*="author"], [class*="name"], [class*="username"], [class*="user-name"]'
-        );
-        if (authorEl) {
-          author = clean(authorEl.textContent).replace(/^by\s+/i, '') || 'Anonymous';
         }
 
         tweaksRaw.push({ author, text });
@@ -140,13 +185,12 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
 
       return {
         title,
-        ingredients: Array.from(new Set(ingredients)).slice(0, 25),
+        ingredients,
         instructions: Array.from(new Set(instructions)).slice(0, 15),
-        tweaksRaw: uniqueTweaks.slice(0, 12), // keep more tweaks
+        tweaksRaw: uniqueTweaks.slice(0, 12),
       };
     });
 
-    // Make sure every tweak becomes a real Tweak object
     const tweaks: Tweak[] = data.tweaksRaw.map((t) => ({
       id: uuid(),
       author: t.author || 'Anonymous',
@@ -166,7 +210,7 @@ export async function scrapeRecipe(url: string): Promise<{ original: Recipe; twe
             : ['(Could not extract instructions cleanly)'],
         url,
       },
-      tweaks, // ← every item here will create one modified recipe
+      tweaks,
     };
   } finally {
     await browser.close();
