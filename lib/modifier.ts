@@ -12,24 +12,31 @@ export async function applyTweak(original: Recipe, tweak: Tweak) {
     }
 
     const prompt = `
-You are a helpful cooking assistant.
+You are an expert recipe editor.
 
 Original Ingredients:
 ${original.ingredients.map((i) => `- ${i}`).join('\n')}
 
-User Review/Tweak:
+User Review:
 "${tweak.text}"
 
-Task:
-Based on the user's review, update the ingredients list realistically.
-- Add any new ingredients the user mentioned
-- Modify existing ones if the user suggested changes
-- Keep the list clean and practical
+Instructions:
+- Carefully read the user's review.
+- If the user says they added extra of something (e.g. "extra tablespoon feta"), increase the quantity of that ingredient.
+- If they substituted something, replace it.
+- If they added a completely new ingredient, add it to the list.
+- Keep the rest of the ingredients the same.
+- Return a clean list of individual ingredients.
 
-Return ONLY valid JSON in this format:
+Return ONLY valid JSON in this exact format:
 
 {
-  "modifiedIngredients": ["ingredient 1", "ingredient 2", ...]
+  "modifiedIngredients": [
+    "3 large eggs",
+    "1 pinch red pepper flakes",
+    "9 cherry tomatoes, halved",
+    "3 tablespoons crumbled feta cheese"
+  ]
 }
 `;
 
@@ -41,16 +48,17 @@ Return ONLY valid JSON in this format:
         },
       ],
       model: 'llama-3.3-70b-versatile',
-      temperature: 0.3,
+      temperature: 0.2,
       response_format: { type: 'json_object' },
     });
 
     const content = completion.choices[0]?.message?.content || '';
     const parsed = JSON.parse(content);
 
-    const modifiedIngredients = parsed.modifiedIngredients || original.ingredients;
+    const modifiedIngredients =
+      parsed.modifiedIngredients || original.ingredients;
 
-    // Keep original instructions + add the tweak note at the end
+    // Keep original instructions + add the tweak note
     const cleanInstructions = original.instructions.filter(
       (l) => !l.toLowerCase().includes('could not extract')
     );
